@@ -30,6 +30,9 @@ struct CustomTabItem: View {
 struct ContentView: View {
     @State private var searchText = ""
     @State private var selectedTab = 0
+    @State private var searchResults: [BoardGame] = []
+    @State private var isSearching = false
+    @State private var errorMessage: String? = nil
     
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -37,9 +40,34 @@ struct ContentView: View {
                 // Main Page Tab
                 NavigationStack {
                     VStack {
-                        // Content will go here
+                        List {
+                            if isSearching {
+                                HStack {
+                                    Spacer()
+                                    ProgressView()
+                                    Spacer()
+                                }
+                            } else {
+                                ForEach(searchResults) { game in
+                                    VStack(alignment: .leading) {
+                                        Text(game.name)
+                                            .font(.headline)
+                                        if let year = game.yearPublished {
+                                            Text("Published: \(year)")
+                                                .font(.subheadline)
+                                                .foregroundColor(.gray)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     .searchable(text: $searchText, prompt: "Search for Board Game to log your play...")
+                    .onChange(of: searchText) { newValue in
+                        Task {
+                            await performSearch()
+                        }
+                    }
                     .navigationTitle("Board Games")
                 }
                 .tag(0)
@@ -89,6 +117,38 @@ struct ContentView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 10)
             .shadow(radius: 5)
+        }
+        .alert("Error", isPresented: .constant(errorMessage != nil)) {
+            Button("OK") {
+                errorMessage = nil
+            }
+        } message: {
+            if let errorMessage = errorMessage {
+                Text(errorMessage)
+            }
+        }
+    }
+    
+    private func performSearch() async {
+        guard !searchText.isEmpty else {
+            searchResults = []
+            return
+        }
+        
+        guard searchText.count >= 3 else { return }
+        
+        do {
+            isSearching = true
+            let results = try await BoardGameService.shared.searchGames(query: searchText)
+            await MainActor.run {
+                searchResults = results
+                isSearching = false
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                isSearching = false
+            }
         }
     }
 }
